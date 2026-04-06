@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { getProfissao } from '../lib/profissao'
 
 function fmt(iso) {
   const d = new Date(iso)
@@ -21,14 +22,8 @@ function isoDate(d) {
   return d.toISOString().split('T')[0]
 }
 
-function getInitials(name) {
-  if (!name) return '?'
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map(n => n[0])
-    .join('')
-    .toUpperCase()
+function moeda(v) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
 function CheckCircleIcon() {
@@ -61,7 +56,13 @@ export default function Agenda() {
   const [dataBase, setDataBase] = useState(new Date())
   const [agendamentos, setAgendamentos] = useState([])
   const [loading, setLoading] = useState(false)
+  const [marcando, setMarcando] = useState(null) // id do agendamento sendo marcado
+  const [labels, setLabels] = useState({ cliente: 'Cliente', servico: 'Serviço' })
   const router = useRouter()
+
+  useEffect(() => {
+    setLabels(getProfissao())
+  }, [])
 
   function getDias() {
     if (modo === 'dia') return [new Date(dataBase)]
@@ -95,6 +96,26 @@ export default function Agenda() {
     setDataBase(d)
   }
 
+  async function marcarPago(e, id) {
+    e.preventDefault()
+    e.stopPropagation()
+    setMarcando(id)
+    try {
+      const res = await fetch(`/api/agendamentos/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pagamentoStatus: 'pago', status: 'concluido' }),
+      })
+      if (res.ok) {
+        setAgendamentos(prev =>
+          prev.map(a => a.id === id ? { ...a, pagamentoStatus: 'pago', status: 'concluido' } : a)
+        )
+      }
+    } finally {
+      setMarcando(null)
+    }
+  }
+
   const dias = getDias()
 
   function agendamentosDoDia(dia) {
@@ -105,9 +126,17 @@ export default function Agenda() {
   const hora = new Date().getHours()
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
 
+  // Earnings bar — only for day view
+  const hoje = isoDate(new Date())
+  const isHoje = modo === 'dia' && isoDate(dataBase) === hoje
+  const agendamentosHoje = agendamentos.filter(a => a.dataHora.startsWith(isoDate(dataBase)))
+  const ganhoHoje = agendamentosHoje.filter(a => a.pagamentoStatus === 'pago').reduce((s, a) => s + a.valor, 0)
+  const pendenteHoje = agendamentosHoje.filter(a => a.pagamentoStatus !== 'pago').reduce((s, a) => s + a.valor, 0)
+  const pendentesCount = agendamentosHoje.filter(a => a.pagamentoStatus !== 'pago').length
+
   return (
     <Layout>
-      {/* Header verde com borda arredondada */}
+      {/* Header verde */}
       <div className="bg-emerald-700 rounded-b-3xl px-5 pt-10 pb-8 shadow-md">
         {/* Row: avatar + ícones */}
         <div className="flex items-center justify-between mb-5">
@@ -120,11 +149,6 @@ export default function Agenda() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
               </svg>
             </Link>
-            <button className="flex items-center justify-center w-9 h-9 rounded-full bg-white/20 text-white">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-              </svg>
-            </button>
           </div>
         </div>
 
@@ -181,7 +205,33 @@ export default function Agenda() {
       </div>
 
       {/* Conteúdo principal */}
-      <div className="px-4 pt-5 max-w-md mx-auto w-full">
+      <div className="px-4 pt-4 max-w-md mx-auto w-full">
+
+        {/* Earnings bar — dia view com agendamentos */}
+        {!loading && modo === 'dia' && agendamentosHoje.length > 0 && (
+          <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 mb-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                {isHoje ? 'Hoje' : fmtData(dataBase.toISOString())}
+              </p>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-emerald-600">{moeda(ganhoHoje)} recebido</span>
+                {pendenteHoje > 0 && (
+                  <>
+                    <span className="text-gray-200">·</span>
+                    <span className="text-sm font-semibold text-amber-500">{moeda(pendenteHoje)} pendente</span>
+                  </>
+                )}
+              </div>
+            </div>
+            {pendentesCount > 0 && (
+              <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-600 text-[10px] font-bold">
+                {pendentesCount}
+              </div>
+            )}
+          </div>
+        )}
+
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
@@ -203,12 +253,23 @@ export default function Agenda() {
                 modo === 'semana' ? (
                   <p className="text-xs text-gray-300 pl-2 pb-1">sem agendamentos</p>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <div className="flex flex-col items-center justify-center py-10 gap-3">
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
                     </svg>
-                    <p className="text-gray-400 text-sm font-medium">Nenhum agendamento</p>
-                    <p className="text-gray-300 text-xs">Toque em + para adicionar</p>
+                    <div className="text-center">
+                      <p className="text-gray-400 text-sm font-medium">Nenhum agendamento</p>
+                      <p className="text-gray-300 text-xs mt-0.5">Toque em + para adicionar</p>
+                    </div>
+                    <Link
+                      href="/agendamentos/novo"
+                      className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-2xl font-semibold text-sm shadow-sm shadow-emerald-100"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                      Novo agendamento
+                    </Link>
                   </div>
                 )
               ) : (
@@ -233,13 +294,30 @@ export default function Agenda() {
                         <p className="text-xs text-gray-500 truncate">{a.servico}</p>
                       </div>
 
-                      {/* Status + seta */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Ações à direita */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
                         {a.pagamentoStatus === 'pago' ? (
                           <CheckCircleIcon />
-                        ) : a.pixCode ? (
-                          <QrIcon />
-                        ) : null}
+                        ) : (
+                          <>
+                            {a.pixCode && <QrIcon />}
+                            {/* Quick mark as paid */}
+                            <button
+                              onClick={(e) => marcarPago(e, a.id)}
+                              disabled={marcando === a.id}
+                              className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 active:scale-95 transition-transform disabled:opacity-50"
+                              title="Marcar como pago"
+                            >
+                              {marcando === a.id ? (
+                                <div className="w-3.5 h-3.5 border-2 border-emerald-300 border-t-emerald-600 rounded-full animate-spin" />
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                </svg>
+                              )}
+                            </button>
+                          </>
+                        )}
                         <ChevronRightIcon />
                       </div>
                     </Link>
@@ -260,7 +338,7 @@ export default function Agenda() {
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
               </svg>
-              Clientes
+              {labels.cliente}s
             </Link>
             <Link
               href="/agendamentos/novo"

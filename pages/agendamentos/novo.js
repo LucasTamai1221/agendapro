@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Layout from '../../components/Layout'
+import { getProfissao } from '../../lib/profissao'
 
 function ArrowLeftIcon() {
   return (
@@ -22,9 +23,11 @@ export default function NovoAgendamento() {
   })
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
+  const [labels, setLabels] = useState({ cliente: 'Cliente', servico: 'Serviço' })
 
   useEffect(() => {
     fetch('/api/clientes').then(r => r.json()).then(setClientes)
+    setLabels(getProfissao())
   }, [])
 
   function handleCliente(e) {
@@ -79,7 +82,7 @@ export default function NovoAgendamento() {
           {/* Cliente */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
-              Cliente
+              {labels.cliente}
             </label>
             <div className="relative">
               <select
@@ -118,11 +121,11 @@ export default function NovoAgendamento() {
           {/* Serviço */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
-              Serviço *
+              {labels.servico} *
             </label>
             <input
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-              placeholder="Ex: Corte de cabelo"
+              placeholder={`Ex: ${labels.servico}`}
               value={form.servico}
               onChange={e => setForm({ ...form, servico: e.target.value })}
               required
