@@ -1,22 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Layout from '../components/Layout'
 import Link from 'next/link'
-import { useRouter } from 'next/router'
 import { getProfissao } from '../lib/profissao'
 
-function fmt(iso) {
-  const d = new Date(iso)
-  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-}
-
-function fmtData(iso) {
-  const d = new Date(iso)
-  return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })
-}
-
-function fmtDataLonga(d) {
-  return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
-}
+const START_HOUR = 7
+const END_HOUR = 22
+const HOUR_HEIGHT = 64
+const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i)
+const TOTAL_H = HOUR_HEIGHT * (END_HOUR - START_HOUR)
+const DIAS_PT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 function isoDate(d) {
   return d.toISOString().split('T')[0]
@@ -26,29 +18,13 @@ function moeda(v) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function CheckCircleIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-emerald-500" viewBox="0 0 24 24" fill="currentColor">
-      <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
-    </svg>
-  )
+function apptTop(iso) {
+  const d = new Date(iso)
+  return Math.max(0, (d.getHours() + d.getMinutes() / 60 - START_HOUR) * HOUR_HEIGHT)
 }
 
-function QrIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
-    </svg>
-  )
-}
-
-function ChevronRightIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-    </svg>
-  )
+function apptHora(iso) {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 export default function Agenda() {
@@ -56,26 +32,41 @@ export default function Agenda() {
   const [dataBase, setDataBase] = useState(new Date())
   const [agendamentos, setAgendamentos] = useState([])
   const [loading, setLoading] = useState(false)
-  const [marcando, setMarcando] = useState(null) // id do agendamento sendo marcado
+  const [marcando, setMarcando] = useState(null)
   const [labels, setLabels] = useState({ cliente: 'Cliente', servico: 'Serviço' })
-  const router = useRouter()
+  const [nowPx, setNowPx] = useState(null)
+  const gridRef = useRef(null)
 
+  useEffect(() => { setLabels(getProfissao()) }, [])
+
+  // Ponteiro de hora atual
   useEffect(() => {
-    setLabels(getProfissao())
+    function tick() {
+      const now = new Date()
+      const px = (now.getHours() + now.getMinutes() / 60 - START_HOUR) * HOUR_HEIGHT
+      setNowPx(px >= 0 && px <= TOTAL_H ? px : null)
+    }
+    tick()
+    const t = setInterval(tick, 60000)
+    return () => clearInterval(t)
   }, [])
+
+  // Auto-scroll para hora atual
+  useEffect(() => {
+    if (gridRef.current && nowPx !== null) {
+      gridRef.current.scrollTop = Math.max(0, nowPx - 120)
+    }
+  }, [nowPx, modo])
 
   function getDias() {
     if (modo === 'dia') return [new Date(dataBase)]
-    const dias = []
-    const inicio = new Date(dataBase)
-    const dow = inicio.getDay()
-    inicio.setDate(inicio.getDate() - dow)
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(inicio)
-      d.setDate(inicio.getDate() + i)
-      dias.push(d)
-    }
-    return dias
+    const d = new Date(dataBase)
+    d.setDate(d.getDate() - d.getDay())
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(d)
+      day.setDate(d.getDate() + i)
+      return day
+    })
   }
 
   useEffect(() => {
@@ -84,9 +75,7 @@ export default function Agenda() {
     const params = dias.map(d => `data=${isoDate(d)}`).join('&')
     fetch(`/api/agendamentos?${params}`)
       .then(r => r.json())
-      .then(data => {
-        setAgendamentos(Array.isArray(data) ? data : [])
-      })
+      .then(data => setAgendamentos(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false))
   }, [dataBase, modo])
 
@@ -117,238 +106,251 @@ export default function Agenda() {
   }
 
   const dias = getDias()
-
-  function agendamentosDoDia(dia) {
-    const prefixo = isoDate(dia)
-    return agendamentos.filter(a => a.dataHora.startsWith(prefixo))
-  }
-
+  const hoje = isoDate(new Date())
   const hora = new Date().getHours()
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
 
-  // Earnings bar — only for day view
-  const hoje = isoDate(new Date())
-  const isHoje = modo === 'dia' && isoDate(dataBase) === hoje
-  const agendamentosHoje = agendamentos.filter(a => a.dataHora.startsWith(isoDate(dataBase)))
-  const ganhoHoje = agendamentosHoje.filter(a => a.pagamentoStatus === 'pago').reduce((s, a) => s + a.valor, 0)
-  const pendenteHoje = agendamentosHoje.filter(a => a.pagamentoStatus !== 'pago').reduce((s, a) => s + a.valor, 0)
-  const pendentesCount = agendamentosHoje.filter(a => a.pagamentoStatus !== 'pago').length
+  function agsDia(dia) {
+    return agendamentos.filter(a => a.dataHora.startsWith(isoDate(dia)))
+  }
+
+  // Earnings do dia
+  const agHoje = modo === 'dia' ? agsDia(dataBase) : []
+  const ganho = agHoje.filter(a => a.pagamentoStatus === 'pago').reduce((s, a) => s + a.valor, 0)
+  const pendente = agHoje.filter(a => a.pagamentoStatus !== 'pago').reduce((s, a) => s + a.valor, 0)
+  const pendCount = agHoje.filter(a => a.pagamentoStatus !== 'pago').length
 
   return (
     <Layout>
-      {/* Header verde */}
-      <div className="bg-emerald-700 rounded-b-3xl px-5 pt-10 pb-8 shadow-md">
-        {/* Row: avatar + ícones */}
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-white/20 text-white font-bold text-sm select-none">
+      {/* Header */}
+      <div className="bg-emerald-700 px-4 pt-10 pb-4 shadow-md">
+        <div className="flex items-center justify-between mb-3">
+          <div className="w-9 h-9 rounded-full bg-white/20 text-white font-bold text-xs flex items-center justify-center select-none">
             AP
           </div>
-          <div className="flex items-center gap-3">
-            <Link href="/clientes" className="flex items-center justify-center w-9 h-9 rounded-full bg-white/20 text-white">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-              </svg>
-            </Link>
-          </div>
-        </div>
-
-        {/* Saudação */}
-        <div className="mb-5">
           <p className="text-emerald-200 text-sm font-medium">{saudacao}!</p>
-          <h1 className="text-white text-2xl font-bold leading-tight">
-            {modo === 'dia'
-              ? fmtDataLonga(dataBase)
-              : `Semana de ${fmtData(dias[0].toISOString())}`}
-          </h1>
+          <Link href="/clientes" className="w-9 h-9 rounded-full bg-white/20 text-white flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+          </Link>
         </div>
 
-        {/* Pill toggle Dia / Semana + navegação */}
-        <div className="flex items-center justify-between">
-          <div className="flex bg-white/20 rounded-full p-1 gap-1">
+        {/* Date nav */}
+        <div className="flex items-center gap-2 mb-3">
+          <button onClick={() => navegar(-1)} className="w-8 h-8 rounded-full bg-white/20 text-white flex items-center justify-center flex-shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+          <div className="flex-1 text-center">
+            <h1 className="text-white font-bold text-base leading-tight capitalize">
+              {modo === 'dia'
+                ? dataBase.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
+                : `Semana de ${dias[1]?.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) || ''}`}
+            </h1>
+          </div>
+          <button onClick={() => navegar(1)} className="w-8 h-8 rounded-full bg-white/20 text-white flex items-center justify-center flex-shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="flex justify-center">
+          <div className="flex bg-white/20 rounded-full p-0.5">
             <button
               onClick={() => setModo('dia')}
-              className={`px-4 py-1 rounded-full text-sm font-medium transition-all ${
-                modo === 'dia' ? 'bg-white text-emerald-700 shadow-sm' : 'text-white/80'
-              }`}
+              className={`px-6 py-1.5 rounded-full text-xs font-semibold transition-all ${modo === 'dia' ? 'bg-white text-emerald-700 shadow-sm' : 'text-white/80'}`}
             >
               Dia
             </button>
             <button
               onClick={() => setModo('semana')}
-              className={`px-4 py-1 rounded-full text-sm font-medium transition-all ${
-                modo === 'semana' ? 'bg-white text-emerald-700 shadow-sm' : 'text-white/80'
-              }`}
+              className={`px-6 py-1.5 rounded-full text-xs font-semibold transition-all ${modo === 'semana' ? 'bg-white text-emerald-700 shadow-sm' : 'text-white/80'}`}
             >
               Semana
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navegar(-1)}
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-white/20 text-white"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-              </svg>
-            </button>
-            <button
-              onClick={() => navegar(1)}
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-white/20 text-white"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-              </svg>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Conteúdo principal */}
-      <div className="px-4 pt-4 max-w-md mx-auto w-full">
-
-        {/* Earnings bar — dia view com agendamentos */}
-        {!loading && modo === 'dia' && agendamentosHoje.length > 0 && (
-          <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 mb-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
-                {isHoje ? 'Hoje' : fmtData(dataBase.toISOString())}
-              </p>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-bold text-emerald-600">{moeda(ganhoHoje)} recebido</span>
-                {pendenteHoje > 0 && (
-                  <>
-                    <span className="text-gray-200">·</span>
-                    <span className="text-sm font-semibold text-amber-500">{moeda(pendenteHoje)} pendente</span>
-                  </>
-                )}
+      {/* Earnings bar */}
+      {!loading && modo === 'dia' && agHoje.length > 0 && (
+        <div className="flex items-center gap-2 bg-white border-b border-gray-100 px-4 py-2">
+          <span className="text-xs font-semibold text-emerald-600">{moeda(ganho)} recebido</span>
+          {pendente > 0 && (
+            <>
+              <span className="text-gray-300">·</span>
+              <span className="text-xs font-semibold text-amber-500">{moeda(pendente)} pendente</span>
+              <div className="ml-auto w-5 h-5 rounded-full bg-amber-100 text-amber-600 text-[10px] font-bold flex items-center justify-center">
+                {pendCount}
               </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Day headers — week view */}
+      {modo === 'semana' && (
+        <div className="bg-white border-b border-gray-100 flex">
+          <div className="w-10 flex-shrink-0" />
+          {dias.map(dia => {
+            const isToday = isoDate(dia) === hoje
+            return (
+              <div key={isoDate(dia)} className="flex-1 flex flex-col items-center py-2 min-w-0">
+                <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide">
+                  {DIAS_PT[dia.getDay()]}
+                </span>
+                <span className={`text-sm font-bold mt-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? 'bg-emerald-600 text-white' : 'text-gray-800'
+                }`}>
+                  {dia.getDate()}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Calendar grid */}
+      <div
+        ref={gridRef}
+        className="overflow-auto bg-white"
+        style={{ height: 'calc(100vh - 260px)', minHeight: 280 }}
+      >
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="flex" style={{ height: TOTAL_H }}>
+
+            {/* Time labels */}
+            <div className="w-10 flex-shrink-0 relative bg-white" style={{ height: TOTAL_H }}>
+              {HOURS.map(h => (
+                <div
+                  key={h}
+                  style={{ position: 'absolute', top: (h - START_HOUR) * HOUR_HEIGHT - 7 }}
+                  className="w-full pr-1.5 text-right"
+                >
+                  <span className="text-[10px] text-gray-400 font-medium">{h}h</span>
+                </div>
+              ))}
             </div>
-            {pendentesCount > 0 && (
-              <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-600 text-[10px] font-bold">
-                {pendentesCount}
-              </div>
-            )}
-          </div>
-        )}
 
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
-            <p className="text-gray-400 text-sm">Carregando...</p>
-          </div>
-        )}
+            {/* Day columns */}
+            {dias.map(dia => {
+              const isToday = isoDate(dia) === hoje
+              const items = agsDia(dia)
+              return (
+                <div
+                  key={isoDate(dia)}
+                  className="flex-1 relative border-l border-gray-100"
+                  style={{ height: TOTAL_H, minWidth: modo === 'semana' ? 48 : 0 }}
+                >
+                  {/* Hoje highlight */}
+                  {isToday && <div className="absolute inset-0 bg-emerald-50/40 pointer-events-none" />}
 
-        {!loading && dias.map(dia => {
-          const items = agendamentosDoDia(dia)
-          return (
-            <div key={isoDate(dia)} className="mb-5">
-              {modo === 'semana' && (
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">
-                  {fmtData(dia.toISOString())}
-                </p>
-              )}
+                  {/* Linhas de hora */}
+                  {HOURS.map(h => (
+                    <div
+                      key={h}
+                      style={{ position: 'absolute', top: (h - START_HOUR) * HOUR_HEIGHT, left: 0, right: 0 }}
+                      className="border-t border-gray-100"
+                    />
+                  ))}
 
-              {items.length === 0 ? (
-                modo === 'semana' ? (
-                  <p className="text-xs text-gray-300 pl-2 pb-1">sem agendamentos</p>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-10 gap-3">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-                    </svg>
-                    <div className="text-center">
-                      <p className="text-gray-400 text-sm font-medium">Nenhum agendamento</p>
-                      <p className="text-gray-300 text-xs mt-0.5">Toque em + para adicionar</p>
+                  {/* Linhas de meia hora */}
+                  {HOURS.map(h => (
+                    <div
+                      key={`m${h}`}
+                      style={{ position: 'absolute', top: (h - START_HOUR) * HOUR_HEIGHT + HOUR_HEIGHT / 2, left: 0, right: 0 }}
+                      className="border-t border-gray-50 border-dashed"
+                    />
+                  ))}
+
+                  {/* Ponteiro de hora atual */}
+                  {isToday && nowPx !== null && (
+                    <div
+                      style={{ position: 'absolute', top: nowPx, left: -1, right: 0, zIndex: 10 }}
+                      className="flex items-center pointer-events-none"
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0 -ml-1" />
+                      <div className="flex-1 border-t-2 border-red-500" />
                     </div>
-                    <Link
-                      href="/agendamentos/novo"
-                      className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-2xl font-semibold text-sm shadow-sm shadow-emerald-100"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                      </svg>
-                      Novo agendamento
-                    </Link>
-                  </div>
-                )
-              ) : (
-                <div className="space-y-2">
-                  {items.map(a => (
-                    <Link
-                      key={a.id}
-                      href={`/agendamentos/${a.id}`}
-                      className="flex items-center bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 gap-3 active:scale-[0.99] transition-transform"
-                    >
-                      {/* Horário */}
-                      <div className="flex-shrink-0 w-14">
-                        <p className="text-sm font-bold text-emerald-600">{fmt(a.dataHora)}</p>
-                      </div>
+                  )}
 
-                      {/* Divisor */}
-                      <div className="w-px h-8 bg-gray-100 flex-shrink-0" />
+                  {/* Agendamentos */}
+                  {items.map(a => {
+                    const top = apptTop(a.dataHora)
+                    const isPago = a.pagamentoStatus === 'pago'
+                    const height = HOUR_HEIGHT - 6
+                    return (
+                      <Link
+                        key={a.id}
+                        href={`/agendamentos/${a.id}`}
+                        style={{ position: 'absolute', top: top + 2, left: 3, right: 3, height, zIndex: 5 }}
+                        className={`rounded-lg border-l-4 overflow-hidden flex flex-col justify-between px-2 py-1 shadow-sm active:opacity-75 transition-opacity ${
+                          isPago
+                            ? 'bg-emerald-50 border-emerald-500'
+                            : 'bg-blue-50 border-blue-400'
+                        }`}
+                      >
+                        <div className="overflow-hidden">
+                          <p className={`text-[11px] font-bold leading-tight ${isPago ? 'text-emerald-700' : 'text-blue-700'}`}>
+                            {apptHora(a.dataHora)}
+                          </p>
+                          <p className="text-[11px] font-semibold text-gray-800 truncate leading-tight">
+                            {a.clienteNome}
+                          </p>
+                          {modo === 'dia' && (
+                            <p className="text-[10px] text-gray-500 truncate">{a.servico}</p>
+                          )}
+                        </div>
 
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm truncate">{a.clienteNome}</p>
-                        <p className="text-xs text-gray-500 truncate">{a.servico}</p>
-                      </div>
-
-                      {/* Ações à direita */}
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        {a.pagamentoStatus === 'pago' ? (
-                          <CheckCircleIcon />
-                        ) : (
-                          <>
-                            {a.pixCode && <QrIcon />}
-                            {/* Quick mark as paid */}
-                            <button
-                              onClick={(e) => marcarPago(e, a.id)}
-                              disabled={marcando === a.id}
-                              className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 active:scale-95 transition-transform disabled:opacity-50"
-                              title="Marcar como pago"
-                            >
-                              {marcando === a.id ? (
-                                <div className="w-3.5 h-3.5 border-2 border-emerald-300 border-t-emerald-600 rounded-full animate-spin" />
-                              ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        {/* Quick mark as paid — dia view */}
+                        {modo === 'dia' && !isPago && (
+                          <button
+                            onClick={(e) => marcarPago(e, a.id)}
+                            disabled={marcando === a.id}
+                            className="self-end flex items-center gap-1 bg-white border border-emerald-200 text-emerald-600 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none"
+                          >
+                            {marcando === a.id ? (
+                              <div className="w-3 h-3 border border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                 </svg>
-                              )}
-                            </button>
-                          </>
+                                Pago
+                              </>
+                            )}
+                          </button>
                         )}
-                        <ChevronRightIcon />
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
+                      </Link>
+                    )
+                  })}
 
-        {/* CTAs */}
-        {!loading && (
-          <div className="flex gap-3 mt-2 pb-4">
-            <Link
-              href="/clientes"
-              className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white py-3 rounded-2xl font-semibold text-sm shadow-sm shadow-emerald-100 active:scale-[0.98] transition-transform"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-              </svg>
-              {labels.cliente}s
-            </Link>
-            <Link
-              href="/agendamentos/novo"
-              className="flex-1 flex items-center justify-center gap-2 bg-orange-500 text-white py-3 rounded-2xl font-semibold text-sm shadow-sm shadow-orange-100 active:scale-[0.98] transition-transform"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008z" />
-              </svg>
-              Agendar
-            </Link>
+                  {/* Empty state — dia view */}
+                  {modo === 'dia' && items.length === 0 && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
+                      <p className="text-gray-300 text-xs font-medium">Nenhum agendamento</p>
+                      <Link
+                        href="/agendamentos/novo"
+                        className="pointer-events-auto flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Novo agendamento
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
