@@ -2,12 +2,6 @@ import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import Link from 'next/link'
 
-const MESES = [
-  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
-]
-const DIAS_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
-
 function moeda(v) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
@@ -16,25 +10,17 @@ function isoDate(d) {
   return d.toISOString().split('T')[0]
 }
 
-// Calcula início e fim da semana que contém `d`
-function semanaRange(d) {
-  const inicio = new Date(d)
-  inicio.setDate(d.getDate() - d.getDay())
-  inicio.setHours(0, 0, 0, 0)
-  const fim = new Date(inicio)
-  fim.setDate(inicio.getDate() + 6)
-  fim.setHours(23, 59, 59, 999)
-  return { inicio, fim }
+function diasEntre(inicioStr, fimStr) {
+  const dias = []
+  const d = new Date(inicioStr + 'T00:00:00')
+  const fim = new Date(fimStr + 'T00:00:00')
+  while (d <= fim) {
+    dias.push(new Date(d))
+    d.setDate(d.getDate() + 1)
+  }
+  return dias
 }
 
-// Calcula início e fim do mês
-function mesRange(mes, ano) {
-  const inicio = new Date(ano, mes - 1, 1, 0, 0, 0)
-  const fim = new Date(ano, mes, 0, 23, 59, 59)
-  return { inicio, fim }
-}
-
-// Agrupa agendamentos por dia → { 'YYYY-MM-DD': { pago, pendente } }
 function agruparPorDia(ags) {
   const map = {}
   ags.forEach(a => {
@@ -46,25 +32,43 @@ function agruparPorDia(ags) {
   return map
 }
 
-// Gera array de dias entre inicio e fim
-function diasEntre(inicio, fim) {
-  const dias = []
-  const d = new Date(inicio)
-  while (d <= fim) {
-    dias.push(new Date(d))
-    d.setDate(d.getDate() + 1)
+function buildBars(ags, inicioStr, fimStr) {
+  const byDay = agruparPorDia(ags)
+  const todos = diasEntre(inicioStr, fimStr)
+  const diffDias = todos.length
+
+  if (diffDias <= 31) {
+    // Diário
+    return todos.map(d => {
+      const key = isoDate(d)
+      const v = byDay[key] || { pago: 0, pendente: 0 }
+      return { label: String(d.getDate()), ...v }
+    })
+  } else {
+    // Semanal — agrupa por início de semana
+    const semanas = {}
+    todos.forEach(d => {
+      const ini = new Date(d)
+      ini.setDate(d.getDate() - d.getDay())
+      const key = isoDate(ini)
+      if (!semanas[key]) semanas[key] = { label: `${ini.getDate()}/${ini.getMonth() + 1}`, pago: 0, pendente: 0 }
+      const dayKey = isoDate(d)
+      if (byDay[dayKey]) {
+        semanas[key].pago += byDay[dayKey].pago
+        semanas[key].pendente += byDay[dayKey].pendente
+      }
+    })
+    return Object.values(semanas)
   }
-  return dias
 }
 
 // ── Gráfico de barras SVG ──────────────────────────────────
-function BarChart({ bars, periodo }) {
-  // bars: [{ label, pago, pendente }]
+function BarChart({ bars }) {
   const maxVal = Math.max(...bars.map(b => b.pago + b.pendente), 1)
   const CHART_H = 90
-  const BAR_W = periodo === 'semana' ? 30 : 18
-  const GAP = periodo === 'semana' ? 10 : 6
   const LABEL_H = 20
+  const BAR_W = Math.max(10, Math.min(30, Math.floor(260 / bars.length) - 6))
+  const GAP = Math.max(3, Math.floor(BAR_W * 0.2))
   const totalW = bars.length * (BAR_W + GAP)
 
   return (
@@ -82,38 +86,17 @@ function BarChart({ bars, periodo }) {
           const pendH = (b.pendente / maxVal) * CHART_H
 
           return (
-            <g key={b.label}>
-              {/* Barra pendente (cima) */}
+            <g key={`${b.label}-${i}`}>
               {pendH > 0 && (
-                <rect
-                  x={x} y={CHART_H - totalH}
-                  width={BAR_W} height={pendH}
-                  rx={3} fill="#fcd34d"
-                />
+                <rect x={x} y={CHART_H - totalH} width={BAR_W} height={pendH} rx={2} fill="#fcd34d" />
               )}
-              {/* Barra pago (baixo) */}
               {pagoH > 0 && (
-                <rect
-                  x={x} y={CHART_H - pagoH}
-                  width={BAR_W} height={pagoH}
-                  rx={pagoH === totalH ? 3 : 0}
-                  style={{ borderRadius: 0 }}
-                  fill="#10b981"
-                />
+                <rect x={x} y={CHART_H - pagoH} width={BAR_W} height={pagoH} rx={pagoH === totalH ? 2 : 0} fill="#10b981" />
               )}
-              {/* Sem dados */}
               {totalH === 0 && (
                 <rect x={x} y={CHART_H - 3} width={BAR_W} height={3} rx={1.5} fill="#e5e7eb" />
               )}
-              {/* Label */}
-              <text
-                x={x + BAR_W / 2}
-                y={CHART_H + LABEL_H - 4}
-                textAnchor="middle"
-                fontSize={periodo === 'semana' ? 9 : 7}
-                fill="#9ca3af"
-                fontFamily="sans-serif"
-              >
+              <text x={x + BAR_W / 2} y={CHART_H + LABEL_H - 4} textAnchor="middle" fontSize={Math.max(6, BAR_W * 0.35)} fill="#9ca3af" fontFamily="sans-serif">
                 {b.label}
               </text>
             </g>
@@ -142,129 +125,68 @@ function StatCard({ label, value, accent, icon }) {
   )
 }
 
+// ── Defaults ──────────────────────────────────────────────
+function defaultInicio() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+function defaultFim() {
+  return new Date().toISOString().split('T')[0]
+}
+
 export default function Resumo() {
-  const agora = new Date()
-  const [periodo, setPeriodo] = useState('mes')
-  const [mes, setMes] = useState(agora.getMonth() + 1)
-  const [ano, setAno] = useState(agora.getFullYear())
-  const [semanaBase, setSemanaBase] = useState(agora)
+  const [dataInicio, setDataInicio] = useState(defaultInicio)
+  const [dataFim, setDataFim] = useState(defaultFim)
   const [dados, setDados] = useState(null)
   const [ags, setAgs] = useState([])
   const [loading, setLoading] = useState(false)
 
   async function carregar() {
+    if (!dataInicio || !dataFim || dataInicio > dataFim) return
     setLoading(true)
     try {
-      let inicio, fim
+      const inicio = new Date(dataInicio + 'T00:00:00').toISOString()
+      const fim = new Date(dataFim + 'T23:59:59').toISOString()
+      const res = await fetch(`/api/agendamentos/range?inicio=${inicio}&fim=${fim}`)
+      const lista = await res.json()
+      const data = Array.isArray(lista) ? lista : []
 
-      if (periodo === 'semana') {
-        const r = semanaRange(semanaBase)
-        inicio = r.inicio
-        fim = r.fim
-      } else {
-        const r = mesRange(mes, ano)
-        inicio = r.inicio
-        fim = r.fim
-      }
-
-      const [resumoRes, agsRes] = await Promise.all([
-        // Para os cards de totais, calculamos a partir dos agendamentos
-        fetch(`/api/agendamentos/range?inicio=${inicio.toISOString()}&fim=${fim.toISOString()}`),
-        fetch(`/api/agendamentos/range?inicio=${inicio.toISOString()}&fim=${fim.toISOString()}`),
-      ])
-
-      const agendamentos = await agsRes.json()
-      const lista = Array.isArray(agendamentos) ? agendamentos : []
-
-      const totalAgendamentos = lista.length
-      const totalPago = lista.filter(a => a.pagamentoStatus === 'pago').reduce((s, a) => s + a.valor, 0)
-      const totalPendente = lista.filter(a => a.pagamentoStatus !== 'pago').reduce((s, a) => s + a.valor, 0)
-      const totalGeral = lista.reduce((s, a) => s + a.valor, 0)
-
-      setDados({ totalAgendamentos, totalPago, totalPendente, totalGeral })
-      setAgs(lista)
+      setAgs(data)
+      setDados({
+        totalAgendamentos: data.length,
+        totalPago: data.filter(a => a.pagamentoStatus === 'pago').reduce((s, a) => s + a.valor, 0),
+        totalPendente: data.filter(a => a.pagamentoStatus !== 'pago').reduce((s, a) => s + a.valor, 0),
+        totalGeral: data.reduce((s, a) => s + a.valor, 0),
+      })
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { carregar() }, [periodo, mes, ano, semanaBase])
+  useEffect(() => { carregar() }, [dataInicio, dataFim])
 
-  function navMes(delta) {
-    let nm = mes + delta, na = ano
-    if (nm < 1) { nm = 12; na-- }
-    if (nm > 12) { nm = 1; na++ }
-    setMes(nm); setAno(na)
-  }
-
-  function navSemana(delta) {
-    const d = new Date(semanaBase)
-    d.setDate(d.getDate() + delta * 7)
-    setSemanaBase(d)
-  }
-
-  // Construir dados do gráfico
-  function buildChartBars() {
-    const byDay = agruparPorDia(ags)
-
-    if (periodo === 'semana') {
-      const { inicio, fim } = semanaRange(semanaBase)
-      return diasEntre(inicio, fim).map(d => {
-        const key = isoDate(d)
-        const v = byDay[key] || { pago: 0, pendente: 0 }
-        return { label: DIAS_PT[d.getDay()], ...v }
-      })
-    } else {
-      // Agrupar por semana do mês (S1..S5)
-      const semanas = {}
-      const { inicio, fim } = mesRange(mes, ano)
-      diasEntre(inicio, fim).forEach(d => {
-        const w = `S${Math.ceil(d.getDate() / 7)}`
-        if (!semanas[w]) semanas[w] = { pago: 0, pendente: 0 }
-        const key = isoDate(d)
-        if (byDay[key]) {
-          semanas[w].pago += byDay[key].pago
-          semanas[w].pendente += byDay[key].pendente
-        }
-      })
-      return Object.entries(semanas).map(([label, v]) => ({ label, ...v }))
-    }
-  }
-
-  const bars = buildChartBars()
-  const totalPendente = dados?.totalPendente || 0
+  const bars = ags.length > 0 ? buildBars(ags, dataInicio, dataFim) : []
   const pendCount = ags.filter(a => a.pagamentoStatus !== 'pago').length
+  const totalPendente = dados?.totalPendente || 0
 
   const cards = dados ? [
     {
-      label: 'Agendamentos',
-      value: String(dados.totalAgendamentos),
-      accent: 'bg-sky-400',
+      label: 'Agendamentos', value: String(dados.totalAgendamentos), accent: 'bg-sky-400',
       icon: { bg: 'bg-sky-50', svg: <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg> },
     },
     {
-      label: 'Recebido',
-      value: moeda(dados.totalPago),
-      accent: 'bg-emerald-500',
+      label: 'Recebido', value: moeda(dados.totalPago), accent: 'bg-emerald-500',
       icon: { bg: 'bg-emerald-50', svg: <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" /></svg> },
     },
     {
-      label: 'A Receber',
-      value: moeda(dados.totalPendente),
-      accent: 'bg-amber-400',
+      label: 'A Receber', value: moeda(dados.totalPendente), accent: 'bg-amber-400',
       icon: { bg: 'bg-amber-50', svg: <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
     },
     {
-      label: 'Total',
-      value: moeda(dados.totalGeral),
-      accent: 'bg-slate-400',
+      label: 'Total', value: moeda(dados.totalGeral), accent: 'bg-slate-400',
       icon: { bg: 'bg-slate-50', svg: <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5l5.25-5.25 4.5 4.5 5.25-6 3 3" /><path strokeLinecap="round" strokeLinejoin="round" d="M3 20.25h18" /></svg> },
     },
   ] : []
-
-  // Rótulo do período para o título
-  const { inicio: ini, fim } = periodo === 'semana' ? semanaRange(semanaBase) : mesRange(mes, ano)
-  const tituloSemana = `${ini.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} – ${fim.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}`
 
   return (
     <Layout>
@@ -273,10 +195,7 @@ export default function Resumo() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-white font-bold text-xl">Resumo</h1>
           {pendCount > 0 && (
-            <Link
-              href="/pendentes"
-              className="flex items-center gap-1.5 bg-amber-400 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm"
-            >
+            <Link href="/pendentes" className="flex items-center gap-1.5 bg-amber-400 text-white text-xs font-bold px-3 py-1.5 rounded-xl">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -285,41 +204,28 @@ export default function Resumo() {
           )}
         </div>
 
-        {/* Semana / Mês toggle */}
-        <div className="flex justify-center mb-4">
-          <div className="flex bg-white/20 rounded-full p-0.5">
-            <button
-              onClick={() => setPeriodo('semana')}
-              className={`px-5 py-1.5 rounded-full text-xs font-semibold transition-all ${periodo === 'semana' ? 'bg-white text-emerald-700 shadow-sm' : 'text-white/80'}`}
-            >
-              Semana
-            </button>
-            <button
-              onClick={() => setPeriodo('mes')}
-              className={`px-5 py-1.5 rounded-full text-xs font-semibold transition-all ${periodo === 'mes' ? 'bg-white text-emerald-700 shadow-sm' : 'text-white/80'}`}
-            >
-              Mês
-            </button>
-          </div>
-        </div>
-
-        {/* Navegação de período */}
-        <div className="flex items-center justify-between bg-white/15 rounded-2xl px-4 py-2.5">
-          <button
-            onClick={() => periodo === 'mes' ? navMes(-1) : navSemana(-1)}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/20 text-white"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-          </button>
-          <span className="font-bold text-white text-sm">
-            {periodo === 'mes' ? `${MESES[mes - 1]} ${ano}` : tituloSemana}
-          </span>
-          <button
-            onClick={() => periodo === 'mes' ? navMes(1) : navSemana(1)}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/20 text-white"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-          </button>
+        {/* Date pickers */}
+        <div className="flex gap-2">
+          <label className="flex-1 bg-white rounded-xl px-3 py-2 cursor-pointer">
+            <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wide mb-0.5">De</p>
+            <input
+              type="date"
+              value={dataInicio}
+              max={dataFim}
+              onChange={e => setDataInicio(e.target.value)}
+              className="text-gray-900 text-sm font-semibold w-full outline-none bg-transparent"
+            />
+          </label>
+          <label className="flex-1 bg-white rounded-xl px-3 py-2 cursor-pointer">
+            <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wide mb-0.5">Até</p>
+            <input
+              type="date"
+              value={dataFim}
+              min={dataInicio}
+              onChange={e => setDataFim(e.target.value)}
+              className="text-gray-900 text-sm font-semibold w-full outline-none bg-transparent"
+            />
+          </label>
         </div>
       </div>
 
@@ -333,12 +239,10 @@ export default function Resumo() {
 
         {!loading && dados && (
           <>
-            {/* Cards de resumo */}
             <div className="grid grid-cols-2 gap-3 mb-5">
               {cards.map(card => <StatCard key={card.label} {...card} />)}
             </div>
 
-            {/* Gráfico */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-bold text-gray-800">Recebimentos</p>
@@ -354,7 +258,7 @@ export default function Resumo() {
                 </div>
               </div>
               {bars.some(b => b.pago > 0 || b.pendente > 0) ? (
-                <BarChart bars={bars} periodo={periodo} />
+                <BarChart bars={bars} />
               ) : (
                 <div className="flex items-center justify-center h-24">
                   <p className="text-gray-300 text-xs">Sem dados para exibir</p>
@@ -362,12 +266,8 @@ export default function Resumo() {
               )}
             </div>
 
-            {/* Link para pendentes */}
             {pendCount > 0 && (
-              <Link
-                href="/pendentes"
-                className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3.5"
-              >
+              <Link href="/pendentes" className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3.5">
                 <div>
                   <p className="text-sm font-bold text-amber-800">Pagamentos pendentes</p>
                   <p className="text-xs text-amber-600 mt-0.5">{pendCount} agendamento{pendCount !== 1 ? 's' : ''} · {moeda(totalPendente)} a receber</p>
@@ -380,10 +280,8 @@ export default function Resumo() {
           </>
         )}
 
-        {!loading && !dados && (
-          <div className="flex flex-col items-center justify-center py-16 gap-2">
-            <p className="text-gray-400 text-sm font-medium">Sem dados para este período</p>
-          </div>
+        {!loading && dados && dados.totalAgendamentos === 0 && (
+          <p className="text-center text-gray-400 text-sm mt-4">Sem agendamentos neste período.</p>
         )}
       </div>
     </Layout>

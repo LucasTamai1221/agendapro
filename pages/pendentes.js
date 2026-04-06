@@ -14,38 +14,30 @@ function fmt(iso) {
   })
 }
 
-function semanaRange() {
-  const agora = new Date()
-  const inicio = new Date(agora)
-  inicio.setDate(agora.getDate() - agora.getDay())
-  inicio.setHours(0, 0, 0, 0)
-  const fim = new Date(inicio)
-  fim.setDate(inicio.getDate() + 6)
-  fim.setHours(23, 59, 59, 999)
-  return { inicio, fim }
+function defaultInicio() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-function mesRange() {
-  const agora = new Date()
-  const inicio = new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0)
-  const fim = new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59)
-  return { inicio, fim }
+function defaultFim() {
+  return new Date().toISOString().split('T')[0]
 }
 
 export default function Pendentes() {
   const router = useRouter()
-  const [periodo, setPeriodo] = useState('semana')
+  const [dataInicio, setDataInicio] = useState(defaultInicio)
+  const [dataFim, setDataFim] = useState(defaultFim)
   const [agendamentos, setAgendamentos] = useState([])
   const [loading, setLoading] = useState(false)
   const [marcando, setMarcando] = useState(null)
 
   async function carregar() {
+    if (!dataInicio || !dataFim || dataInicio > dataFim) return
     setLoading(true)
     try {
-      const { inicio, fim } = periodo === 'semana' ? semanaRange() : mesRange()
-      const res = await fetch(
-        `/api/agendamentos/range?inicio=${inicio.toISOString()}&fim=${fim.toISOString()}`
-      )
+      const inicio = new Date(dataInicio + 'T00:00:00').toISOString()
+      const fim = new Date(dataFim + 'T23:59:59').toISOString()
+      const res = await fetch(`/api/agendamentos/range?inicio=${inicio}&fim=${fim}`)
       const data = await res.json()
       const lista = Array.isArray(data) ? data : []
       setAgendamentos(lista.filter(a => a.pagamentoStatus !== 'pago'))
@@ -54,7 +46,7 @@ export default function Pendentes() {
     }
   }
 
-  useEffect(() => { carregar() }, [periodo])
+  useEffect(() => { carregar() }, [dataInicio, dataFim])
 
   async function marcarPago(id) {
     setMarcando(id)
@@ -64,9 +56,7 @@ export default function Pendentes() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pagamentoStatus: 'pago', status: 'concluido' }),
       })
-      if (res.ok) {
-        setAgendamentos(prev => prev.filter(a => a.id !== id))
-      }
+      if (res.ok) setAgendamentos(prev => prev.filter(a => a.id !== id))
     } finally {
       setMarcando(null)
     }
@@ -81,38 +71,42 @@ export default function Pendentes() {
         <div className="flex items-center gap-3 mb-4">
           <button
             onClick={() => router.back()}
-            className="flex items-center justify-center w-9 h-9 rounded-full bg-white/20 text-white"
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-white/20 text-white flex-shrink-0"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
           </button>
-          <div className="flex-1">
-            <h1 className="text-white font-bold text-xl leading-tight">Pendentes</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-white font-bold text-xl">Pendentes</h1>
             {!loading && agendamentos.length > 0 && (
-              <p className="text-amber-100 text-sm font-medium mt-0.5">
-                {moeda(total)} a receber
-              </p>
+              <p className="text-amber-100 text-sm font-medium">{moeda(total)} a receber</p>
             )}
           </div>
         </div>
 
-        {/* Toggle Semana / Mês */}
-        <div className="flex justify-center">
-          <div className="flex bg-white/20 rounded-full p-0.5">
-            <button
-              onClick={() => setPeriodo('semana')}
-              className={`px-6 py-1.5 rounded-full text-xs font-semibold transition-all ${periodo === 'semana' ? 'bg-white text-amber-600 shadow-sm' : 'text-white/80'}`}
-            >
-              Esta semana
-            </button>
-            <button
-              onClick={() => setPeriodo('mes')}
-              className={`px-6 py-1.5 rounded-full text-xs font-semibold transition-all ${periodo === 'mes' ? 'bg-white text-amber-600 shadow-sm' : 'text-white/80'}`}
-            >
-              Este mês
-            </button>
-          </div>
+        {/* Date pickers */}
+        <div className="flex gap-2">
+          <label className="flex-1 bg-white rounded-xl px-3 py-2 cursor-pointer">
+            <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wide mb-0.5">De</p>
+            <input
+              type="date"
+              value={dataInicio}
+              max={dataFim}
+              onChange={e => setDataInicio(e.target.value)}
+              className="text-gray-900 text-sm font-semibold w-full outline-none bg-transparent"
+            />
+          </label>
+          <label className="flex-1 bg-white rounded-xl px-3 py-2 cursor-pointer">
+            <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wide mb-0.5">Até</p>
+            <input
+              type="date"
+              value={dataFim}
+              min={dataInicio}
+              onChange={e => setDataFim(e.target.value)}
+              className="text-gray-900 text-sm font-semibold w-full outline-none bg-transparent"
+            />
+          </label>
         </div>
       </div>
 
@@ -133,7 +127,7 @@ export default function Pendentes() {
             </div>
             <div className="text-center">
               <p className="text-gray-700 font-semibold text-sm">Nenhum pendente!</p>
-              <p className="text-gray-400 text-xs mt-1">Todos os agendamentos desta {periodo === 'semana' ? 'semana' : 'mês'} estão pagos.</p>
+              <p className="text-gray-400 text-xs mt-1">Tudo pago neste período.</p>
             </div>
           </div>
         )}
@@ -147,7 +141,7 @@ export default function Pendentes() {
                 <p className="text-2xl font-bold text-amber-700 mt-0.5">{moeda(total)}</p>
               </div>
               <div className="flex items-center justify-center w-12 h-12 bg-amber-100 rounded-2xl">
-                <span className="text-2xl font-bold text-amber-500">{agendamentos.length}</span>
+                <span className="text-xl font-bold text-amber-500">{agendamentos.length}</span>
               </div>
             </div>
 
@@ -155,7 +149,6 @@ export default function Pendentes() {
             <div className="space-y-3">
               {agendamentos.map(a => (
                 <div key={a.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                  {/* Info principal */}
                   <div className="flex items-start gap-3 px-4 pt-4 pb-3">
                     <div className="flex-shrink-0 w-1 self-stretch rounded-full bg-amber-400" />
                     <div className="flex-1 min-w-0">
@@ -166,18 +159,13 @@ export default function Pendentes() {
                     <div className="flex-shrink-0 text-right">
                       <p className="font-bold text-gray-900 text-base">R$ {a.valor.toFixed(2)}</p>
                       {a.pixCode ? (
-                        <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                          Pix gerado
-                        </span>
+                        <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Pix gerado</span>
                       ) : (
-                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                          Sem Pix
-                        </span>
+                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Sem Pix</span>
                       )}
                     </div>
                   </div>
 
-                  {/* Ações */}
                   <div className="flex items-center gap-2 px-4 pb-3 pt-2 border-t border-gray-50">
                     <button
                       onClick={() => marcarPago(a.id)}
@@ -193,7 +181,6 @@ export default function Pendentes() {
                       )}
                       Marcar pago
                     </button>
-
                     <Link
                       href={`/agendamentos/${a.id}`}
                       className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 border border-gray-200 px-3 py-2 rounded-xl"
