@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Read(//c/Users/Tamai/Documents/Projetos/02 - SaaS para Prestadores de Serviço/**)",
+      "Bash(done)"
+    ]
+  }
+}
